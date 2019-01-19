@@ -29,7 +29,7 @@ echoError() {
 }
 
 makeBilibiliCookies() {
-    if [ -f "${ORIGIN_COOKIES}" ]; then
+    if [[ -f "${ORIGIN_COOKIES}" ]]; then
         echo -n "Generating Bilibili cookies ... "
         grep 'bilibili.*\(DedeUserID\(__ckMd5\)\?\|SESSDATA\|sid\)' \
             "${ORIGIN_COOKIES}" \
@@ -61,53 +61,56 @@ updateInfo() {
 }
 
 listDownload() {
-    if [ "$1" = "make" ]; then
-        makeDownloadList
-    else
-        catDownloadList
-    fi
-}
+    catDownloadList() {
+        cat "${DOWNLOAD_LIST}"
+    }
 
-catDownloadList() {
-    cat "${DOWNLOAD_LIST}"
-}
+    makeDownloadList() {
+        if [[ ! -f "./download.list" ]]; then
+            echoError "Download list is not found in ./download.list"
+            exit 1
+        fi
+        echo -n "Processing download list ... "
+        sed -E 's/ *#.*$//' ./download.list | grep '.\+' > "${DOWNLOAD_LIST}"
+        if [[ $? -eq 0 ]]; then
+            echo "DONE!"
+        fi
+    }
 
-makeDownloadList() {
-    if [ ! -f "./download.list" ]; then
-        echoError "Download list is not found in ./download.list"
-        exit 1
-    fi
-    echo -n "Processing download list ... "
-    sed -E 's/ *#.*$//' ./download.list | grep '.\+' > "${DOWNLOAD_LIST}"
-    if [[ $? -eq 0 ]]; then
-        echo "DONE!"
-    fi
+    case "$1" in
+        "make"|"generate" )
+            makeDownloadList
+            ;;
+        * )
+            catDownloadList
+            ;;
+    esac
 }
 
 download() {
-    if [ ! -f  "${DOWNLOAD_LIST}" ]; then
-        makeDownloadList
+    if [[ ! -f  "${DOWNLOAD_LIST}" ]]; then
+        listDownload make
     fi
     annie -p -C -c "${COOKIES}" -F "${DOWNLOAD_LIST}" && rm "${DOWNLOAD_LIST}"
 }
 
-getVideoRes() {
-    videoFile="$1"
-    ffprobe -v error \
-        -select_streams v:0 \
-        -show_entries stream=width,height \
-        -of csv=s=x:p=0 \
-        "${videoFile}"
-}
-
 xml2ass() {
+    getVideoRes() {
+        videoFile="$1"
+        ffprobe -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height \
+            -of csv=s=x:p=0 \
+            "${videoFile}"
+    }
+
     xmlFile="$1"
     xmlFileName=${xmlFile%.xml}
     videoFile="${xmlFileName}.flv"
-    if [ -f "${xmlFileName}.mp4" ]; then
+    if [[ -f "${xmlFileName}.mp4" ]]; then
         videoFile="${xmlFileName}.mp4"
     fi
-    if [ -f "${videoFile}" ]; then
+    if [[ -f "${videoFile}" ]]; then
         optRes=$(getVideoRes "${videoFile}")
         height=${optRes#*x}
         optFs=$((${height}*50/1080))
@@ -142,21 +145,19 @@ statCount() {
 }
 
 videoMove() {
-    if [ ! -n "$1" ]; then
+    if [[ ! -n "$1" ]]; then
         echoError -n "Moving videos needs a param of PREFIX! "
         echo "Use $(basename $0) help for more help."
         exit 1
     fi
     targetDir="${MOVE_DIR}/$1"
-    if [ ! -d "${targetDir}" ]; then
+    if [[ ! -d "${targetDir}" ]]; then
         echo -n "Making folder: ${targetDir} ... "
         mkdir -p "${targetDir}"
         echo "DONE!"
     fi
     echo "Moving $(ls "$1"* | wc -l) files to ${targetDir}"
-    rsync -aP "$1"* "${targetDir}" \
-        && rm "$1"* \
-        || echoWarning "Moving with ERRORs, won't remove origin files!"
+    rsync -aP --remove-source-files "$1"* "${targetDir}"
 }
 
 usage() {
@@ -180,24 +181,37 @@ EOF
 }
 
 main() {
-    if [ "$1" = "d" -o "$1" = "download" ]; then
-        download
-        makeAss
-    elif [ "$1" = "list" ]; then
-        listDownload "$2"
-    elif [ "$1" = "cookie" ]; then
-        makeBilibiliCookies
-    elif [ "$1" = "ass" ]; then
-        makeAss "$2"
-    elif [ "$1" = "stat" ]; then
-        statCount "$2"
-    elif [ "$1" = "info" ]; then
-        updateInfo
-    elif [ "$1" = "move" ]; then
-        videoMove "$2"
-    else
-        usage
-    fi
+    SUBCMD="$1"
+    shift
+    case "$SUBCMD" in
+        "download"|"d" )
+            download
+            makeAss
+            ;;
+        "list"|"ls" )
+            listDownload $*
+            ;;
+        "cookie" )
+            makeBilibiliCookies
+            ;;
+        "ass" )
+            makeAss $*
+            ;;
+        "stats"|"stat" )
+            statCount $*
+            ;;
+        "info" )
+            updateInfo
+            ;;
+        "move" )
+            videoMove $*
+            ;;
+        "help"|""|"-h"|"--help" )
+            usage
+            ;;
+        * )
+            echoError "Vaild SUBCOMMAND, use $(basename $0) help for help."
+    esac
 }
 
 main $*
